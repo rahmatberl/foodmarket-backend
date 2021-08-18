@@ -16,11 +16,13 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware('auth:sanctum')->group(function(){
+Route::middleware('auth:sanctum')->group(function () {
     Route::get('user', [UserController::class, 'fetch']);
     Route::post('user', [UserController::class, 'updateProfile']);
     Route::post('user/photo', [UserController::class, 'updatePhoto']);
     Route::post('logout', [UserController::class, 'logout ']);
+
+    Route::post('checkout', [TrasactionController::class, 'checkout']);
 
     Route::get('transaction', [TrasactionController::class, 'all']);
     Route::post('transaction/{id}', [TrasactionController::class, 'update']);

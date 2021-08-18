@@ -5,9 +5,11 @@ namespace App\Http\Controllers\API;
 use Illuminate\Http\Request;
 use App\Helpers\ResponseFormatter;
 use App\Http\Controllers\Controller;
-use App\Models\food;
-use App\Models\transaction;
+use App\Models\Transaction;
+use Exception;
 use Illuminate\Support\Facades\Auth;
+use Midtrans\Config;
+use Midtrans\Snap;
 
 class TrasactionController extends Controller
 {
@@ -18,17 +20,17 @@ class TrasactionController extends Controller
         $food_id = $request->input('food_id');
         $status = $request->input('status');
 
-        
 
-        if($id){
+
+        if ($id) {
             $transaction = Transaction::with(['food', 'user'])->find($id);
-            
-            if($transaction){
+
+            if ($transaction) {
                 return ResponseFormatter::success(
                     $transaction,
                     'Data transaction berhasil diambil'
                 );
-            } else{
+            } else {
                 return ResponseFormatter::error(
                     null,
                     'Data transaction tidak ada',
@@ -36,14 +38,14 @@ class TrasactionController extends Controller
                 );
             }
         }
-        
+
         $transaction = Transaction::with(['food', 'user'])->where('user_id', Auth::user()->id);
 
-        if($food_id){
+        if ($food_id) {
             $transaction->where('food_id', $food_id);
         }
 
-        if($status){
+        if ($status) {
             $transaction->where('status', $status);
         }
 
@@ -60,5 +62,64 @@ class TrasactionController extends Controller
         $transaction->update($request->all());
 
         return ResponseFormatter::success($transaction, 'Transaction Success Update');
+    }
+
+    public function checkout(Request $request)
+    {
+        $request->validate([
+            'food_id' => 'reqired|exists:food,id',
+            'user_id' => 'reqired|exists:users,id',
+            'quantity' => 'required',
+            'total' => 'required',
+            'status' => 'required',
+        ]);
+
+        $transaction = Transaction::create([
+            'food_id' => $request->food_id,
+            'user_id' => $request->user_id,
+            'quantity' => $request->quantity,
+            'total' => $request->total,
+            'status' => $request->status,
+            'payment_url' => '',
+        ]);
+
+        //Konfigurasi Midtrans
+        Config::$serverKey = config('services.midtrans.serverKey');
+        Config::$isProduction = config('services.midtrans.isProduction');
+        Config::$isSanitized = config('services.midtrans.isSanitized');
+        Config::$is3ds = config('services.midtrans.is3ds');
+
+        //Panggil transaksi yang tadi dibuat
+        $transaction = Transaction::with(['food', 'user'])->find($transaction->id);
+
+        //Membuat Transaksi MIdtrans
+
+        $midtrans = [
+            'transaction_details' => [
+                'order_id' => $transaction->id,
+                'gross_amount' => (int) $transaction->total,
+            ],
+            'customer_details' => [
+                'first_name' => $transaction->user->name,
+                'email' => $transaction->user->email,
+            ],
+            'enabled_payments' => ['gopay', 'bank_transfer'],
+            'vtweb' => []
+        ];
+
+        //Memanggil Midtrans
+
+        try {
+            //Ambil Halaman Payment midtrans
+            $paymentUrl = Snap::createTransaction($midtrans)->redirect_url;
+
+            $transaction->payment_url = $paymentUrl;
+            $transaction->save();
+
+            //Mengembalikan Data ke API
+            return ResponseFormatter::success($transaction, 'Transaksi Berhasil');
+        } catch (Exception $e) {
+            return ResponseFormatter::error($e->getMessage(), 'Transaksi Gagal');
+        }
     }
 }
